@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace OCA\FilesSpoilers\Tests\Unit\Service;
 
 use OCA\FilesSpoilers\Service\SpoilerService;
+use OCP\Files\IRootFolder;
 use OCP\IConfig;
 use OCP\IUser;
 use OCP\IUserSession;
@@ -21,6 +22,7 @@ class SpoilerServiceTest extends TestCase {
 	private SpoilerService $service;
 	private IConfig&MockObject $config;
 	private IUserSession&MockObject $userSession;
+	private IRootFolder&MockObject $rootFolder;
 	private LoggerInterface&MockObject $logger;
 	private IUser&MockObject $user;
 
@@ -29,6 +31,7 @@ class SpoilerServiceTest extends TestCase {
 
 		$this->config = $this->createMock(IConfig::class);
 		$this->userSession = $this->createMock(IUserSession::class);
+		$this->rootFolder = $this->createMock(IRootFolder::class);
 		$this->logger = $this->createMock(LoggerInterface::class);
 		$this->user = $this->createMock(IUser::class);
 
@@ -38,6 +41,7 @@ class SpoilerServiceTest extends TestCase {
 		$this->service = new SpoilerService(
 			$this->config,
 			$this->userSession,
+			$this->rootFolder,
 			$this->logger
 		);
 	}
@@ -284,6 +288,7 @@ class SpoilerServiceTest extends TestCase {
 		$service = new SpoilerService(
 			$this->config,
 			$userSession,
+			$this->rootFolder,
 			$this->logger
 		);
 

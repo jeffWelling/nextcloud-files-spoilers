@@ -14,7 +14,9 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
+use OCP\Files\IRootFolder;
 use OCP\IRequest;
+use OCP\IUserSession;
 
 /**
  * Controller for checking spoiler status of files.
@@ -28,8 +30,31 @@ class SpoilerController extends OCSController {
 		string $appName,
 		IRequest $request,
 		private SpoilerService $spoilerService,
+		private IRootFolder $rootFolder,
+		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
+	}
+
+	/**
+	 * Verify the current user can access the given file ID
+	 *
+	 * @param int $fileId
+	 * @return bool True if user can access the file
+	 */
+	private function canAccessFile(int $fileId): bool {
+		$user = $this->userSession->getUser();
+		if ($user === null) {
+			return false;
+		}
+
+		try {
+			$userFolder = $this->rootFolder->getUserFolder($user->getUID());
+			$nodes = $userFolder->getById($fileId);
+			return !empty($nodes);
+		} catch (\Exception $e) {
+			return false;
+		}
 	}
 
 	/**
@@ -41,6 +66,14 @@ class SpoilerController extends OCSController {
 	#[NoAdminRequired]
 	public function check(int $fileId): DataResponse {
 		try {
+			// Verify user can access this file
+			if (!$this->canAccessFile($fileId)) {
+				return new DataResponse(
+					['message' => 'File not found or access denied'],
+					Http::STATUS_NOT_FOUND
+				);
+			}
+
 			// Get labels from files_labels app
 			$labels = $this->getFileLabels($fileId);
 			$isSpoilered = $this->spoilerService->isSpoilered($labels);
@@ -87,8 +120,17 @@ class SpoilerController extends OCSController {
 				);
 			}
 
-			// Get labels for all files
-			$filesLabels = $this->getFilesLabels($fileIds);
+			// Filter to only files the user can access
+			$accessibleFileIds = array_filter($fileIds, fn($id) => $this->canAccessFile((int)$id));
+
+			if (empty($accessibleFileIds)) {
+				return new DataResponse([
+					'files' => [],
+				]);
+			}
+
+			// Get labels for accessible files only
+			$filesLabels = $this->getFilesLabels($accessibleFileIds);
 
 			// Check spoiler status for each
 			$results = $this->spoilerService->checkBulkSpoilerStatus($filesLabels);

@@ -4,7 +4,7 @@
  */
 
 import axios from '@nextcloud/axios'
-import { generateOcsUrl } from '@nextcloud/router'
+import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import { subscribe } from '@nextcloud/event-bus'
 
 // Store for spoiler state
@@ -16,7 +16,14 @@ const spoilerState = {
 	labelCache: new Map(), // fileId -> labels
 	revealedFiles: new Set(),
 	loaded: false,
-	pendingChecks: new Set(),
+	pendingPromises: new Map(), // fileId -> Promise (for deduplication)
+}
+
+// Batch fetching state
+const batchState = {
+	queue: new Map(), // fileId -> { resolve, reject }
+	timer: null,
+	BATCH_DELAY: 50, // ms to wait before sending batch request
 }
 
 // Load user settings
@@ -36,32 +43,78 @@ async function loadSettings() {
 	}
 }
 
-// Fetch labels for a file
-async function fetchLabels(fileId) {
-	if (spoilerState.labelCache.has(fileId)) {
-		return spoilerState.labelCache.get(fileId)
+// Execute batch fetch of labels
+async function executeBatchFetch() {
+	batchState.timer = null
+
+	if (batchState.queue.size === 0) {
+		return
 	}
 
-	// Avoid duplicate requests
-	if (spoilerState.pendingChecks.has(fileId)) {
-		return null
-	}
+	// Copy and clear the queue
+	const pending = new Map(batchState.queue)
+	batchState.queue.clear()
 
-	spoilerState.pendingChecks.add(fileId)
+	const fileIds = Array.from(pending.keys())
+	console.log('[files_spoilers] Batch fetching labels for', fileIds.length, 'files')
 
 	try {
-		const url = generateOcsUrl('apps/files_labels/api/v1/labels/{fileId}', { fileId })
-		const response = await axios.get(url)
-		const labels = response.data.ocs.data || {}
-		spoilerState.labelCache.set(fileId, labels)
-		return labels
+		const url = generateOcsUrl('apps/files_labels/api/v1/labels/bulk')
+		const response = await axios.post(url, { fileIds })
+		const results = response.data.ocs.data || {}
+
+		// Resolve all promises with their results
+		for (const [fileId, handlers] of pending) {
+			const labels = results[fileId] || {}
+			spoilerState.labelCache.set(fileId, labels)
+			spoilerState.pendingPromises.delete(fileId)
+			handlers.resolve(labels)
+		}
 	} catch (error) {
-		// File might not have labels or user doesn't have access
-		spoilerState.labelCache.set(fileId, {})
-		return {}
-	} finally {
-		spoilerState.pendingChecks.delete(fileId)
+		console.error('[files_spoilers] Batch fetch failed, falling back to individual requests:', error)
+		// Fallback: fetch individually
+		for (const [fileId, handlers] of pending) {
+			try {
+				const url = generateOcsUrl('apps/files_labels/api/v1/labels/{fileId}', { fileId })
+				const response = await axios.get(url)
+				const labels = response.data.ocs.data || {}
+				spoilerState.labelCache.set(fileId, labels)
+				handlers.resolve(labels)
+			} catch (e) {
+				spoilerState.labelCache.set(fileId, {})
+				handlers.resolve({})
+			} finally {
+				spoilerState.pendingPromises.delete(fileId)
+			}
+		}
 	}
+}
+
+// Fetch labels for a file (batched)
+function fetchLabels(fileId) {
+	// Return cached result immediately
+	if (spoilerState.labelCache.has(fileId)) {
+		return Promise.resolve(spoilerState.labelCache.get(fileId))
+	}
+
+	// Return existing pending promise (deduplication)
+	if (spoilerState.pendingPromises.has(fileId)) {
+		return spoilerState.pendingPromises.get(fileId)
+	}
+
+	// Create a new promise and add to batch queue
+	const promise = new Promise((resolve, reject) => {
+		batchState.queue.set(fileId, { resolve, reject })
+	})
+
+	spoilerState.pendingPromises.set(fileId, promise)
+
+	// Schedule batch execution
+	if (!batchState.timer) {
+		batchState.timer = setTimeout(executeBatchFetch, batchState.BATCH_DELAY)
+	}
+
+	return promise
 }
 
 // Check if file labels match any trigger
@@ -147,12 +200,39 @@ function applySpoilerPlaceholder(previewContainer, fileId) {
 	// Create placeholder
 	const placeholder = document.createElement('div')
 	placeholder.className = 'spoiler-placeholder'
-	placeholder.innerHTML = `
-		<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-			<line x1="1" y1="1" x2="23" y2="23"/>
-		</svg>
-	`
+
+	// Use custom placeholder image if configured, otherwise default SVG
+	if (spoilerState.settings.placeholder_file_id) {
+		const img = document.createElement('img')
+		img.src = generateUrl('/core/preview?fileId={fileId}&x=128&y=128', {
+			fileId: spoilerState.settings.placeholder_file_id,
+		})
+		img.alt = 'Spoiler'
+		img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;'
+		placeholder.appendChild(img)
+	} else {
+		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+		svg.setAttribute('width', '24')
+		svg.setAttribute('height', '24')
+		svg.setAttribute('viewBox', '0 0 24 24')
+		svg.setAttribute('fill', 'none')
+		svg.setAttribute('stroke', 'currentColor')
+		svg.setAttribute('stroke-width', '2')
+
+		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+		path.setAttribute('d', 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24')
+		svg.appendChild(path)
+
+		const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+		line.setAttribute('x1', '1')
+		line.setAttribute('y1', '1')
+		line.setAttribute('x2', '23')
+		line.setAttribute('y2', '23')
+		svg.appendChild(line)
+
+		placeholder.appendChild(svg)
+	}
+
 	placeholder.style.cssText = `
 		display: flex;
 		align-items: center;
@@ -164,14 +244,27 @@ function applySpoilerPlaceholder(previewContainer, fileId) {
 		color: var(--color-text-lighter, #fff);
 		border-radius: var(--border-radius, 4px);
 		cursor: pointer;
+		overflow: hidden;
 	`
 	placeholder.title = 'Click to reveal'
+	placeholder.setAttribute('role', 'button')
+	placeholder.setAttribute('tabindex', '0')
+	placeholder.setAttribute('aria-label', 'Hidden content - click or press Enter to reveal')
 
 	// Add click handler to reveal
 	placeholder.addEventListener('click', (e) => {
 		e.preventDefault()
 		e.stopPropagation()
 		revealFile(previewContainer, fileId)
+	})
+
+	// Add keyboard handler for accessibility
+	placeholder.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault()
+			e.stopPropagation()
+			revealFile(previewContainer, fileId)
+		}
 	})
 
 	previewContainer.appendChild(placeholder)

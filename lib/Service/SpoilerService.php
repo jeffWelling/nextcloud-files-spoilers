@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace OCA\FilesSpoilers\Service;
 
+use OCP\Files\IRootFolder;
+use OCP\Files\NotFoundException;
 use OCP\IConfig;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
@@ -25,6 +27,7 @@ class SpoilerService {
 	public function __construct(
 		private IConfig $config,
 		private IUserSession $userSession,
+		private IRootFolder $rootFolder,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -149,9 +152,30 @@ class SpoilerService {
 	 * Set a custom placeholder file for the current user
 	 *
 	 * @param int $fileId The file ID of the placeholder image
+	 * @throws \InvalidArgumentException if file doesn't exist or user can't access it
 	 */
 	public function setPlaceholderFileId(int $fileId): void {
 		$userId = $this->getUserId();
+
+		// Verify user has access to this file
+		try {
+			$userFolder = $this->rootFolder->getUserFolder($userId);
+			$nodes = $userFolder->getById($fileId);
+
+			if (empty($nodes)) {
+				throw new \InvalidArgumentException('File not found or access denied');
+			}
+
+			$node = $nodes[0];
+
+			// Verify it's an image file
+			$mimeType = $node->getMimeType();
+			if (!str_starts_with($mimeType, 'image/')) {
+				throw new \InvalidArgumentException('File must be an image');
+			}
+		} catch (NotFoundException $e) {
+			throw new \InvalidArgumentException('File not found or access denied');
+		}
 
 		$this->config->setUserValue(
 			$userId,

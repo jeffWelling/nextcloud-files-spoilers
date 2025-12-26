@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!--
+  - SPDX-FileCopyrightText: 2024 Jeff <jeff@example.com>
+  - SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>files_spoilers</id>
+    <name>File Spoilers</name>
+    <summary>Hide file previews for files with configurable labels</summary>
+    <description><![CDATA[
+This app hides file previews (thumbnails) for files that have been labeled
+with configurable "spoiler" labels. Instead of showing the actual preview,
+a placeholder is displayed.
+
+**Features:**
+- Hide previews for files matching configurable label conditions
+- Default: Files with label `sensitive=true` show placeholder
+- Multiple label triggers supported (OR logic)
+- Optional custom placeholder image
+- Right-click context menu to temporarily reveal preview
+
+**Requirements:**
+- Requires `files_labels` app to be installed and enabled
+
+**Use Cases:**
+- Hide sensitive photos from being visible while scrolling
+- Prevent shoulder-surfing in public places
+- Spoiler warnings for media content
+
+**How It Works:**
+1. Install and enable both `files_labels` and `files_spoilers`
+2. Go to Settings → Personal → Files → Spoilers
+3. Configure which labels trigger the spoiler (default: sensitive=true)
+4. Label files using the Labels sidebar tab in Files app
+5. Labeled files will show a placeholder instead of preview
+6. Right-click a spoilered file and select "Reveal preview" to temporarily show it
+]]></description>
+    <version>0.1.1</version>
+    <licence>agpl</licence>
+    <author mail="jeff@example.com">Jeff</author>
+    <namespace>FilesSpoilers</namespace>
+    <category>files</category>
+    <category>security</category>
+    <bugs>https://github.com/nextcloud/files_spoilers/issues</bugs>
+    <dependencies>
+        <php min-version="8.1"/>
+        <nextcloud min-version="28" max-version="31"/>
+    </dependencies>
+    <settings>
+        <personal>OCA\FilesSpoilers\Settings\Personal</personal>
+        <personal-section>OCA\FilesSpoilers\Settings\PersonalSection</personal-section>
+    </settings>
+    <scripts>
+        <script>js/files_spoilers-main.js</script>
+    </scripts>
+</info>

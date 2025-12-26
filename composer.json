@@ -1,0 +1,23 @@
+{
+	"name": "nextcloud/files_spoilers",
+	"description": "Hide file previews for files with configurable labels",
+	"type": "project",
+	"license": "AGPL-3.0-or-later",
+	"require": {
+		"php": "^8.1"
+	},
+	"require-dev": {
+		"nextcloud/ocp": "^29",
+		"phpunit/phpunit": "^10"
+	},
+	"autoload": {
+		"psr-4": {
+			"OCA\\FilesSpoilers\\": "lib/"
+		}
+	},
+	"config": {
+		"platform": {
+			"php": "8.1"
+		}
+	}
+}

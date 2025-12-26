@@ -5,6 +5,7 @@
 
 import axios from '@nextcloud/axios'
 import { generateOcsUrl } from '@nextcloud/router'
+import { subscribe } from '@nextcloud/event-bus'
 
 // Store for spoiler state
 const spoilerState = {
@@ -256,11 +257,63 @@ function setupObserver() {
 	bodyObserver.observe(document.body, { childList: true, subtree: true })
 }
 
+// Handle label changes from files_labels app
+function handleLabelChange({ fileId, labels }) {
+	console.log('[files_spoilers] Label changed for file', fileId, labels)
+
+	// Update cache
+	spoilerState.labelCache.set(fileId, labels)
+
+	// Check if this file should now be spoilered or revealed
+	const shouldBeSpoilered = isSpoilered(labels, spoilerState.settings.trigger_labels)
+	const isRevealed = spoilerState.revealedFiles.has(fileId)
+
+	// Find the file row in the DOM
+	const row = document.querySelector(
+		`[data-cy-files-list-row-fileid="${fileId}"], ` +
+		`tr[data-file][data-id="${fileId}"], ` +
+		`.files-list__row[data-file-id="${fileId}"]`
+	)
+
+	if (!row) {
+		return
+	}
+
+	const previewContainer = row.querySelector(
+		'.files-list__row-icon, ' +
+		'.files-list__row-icon-preview, ' +
+		'[data-cy-files-list-row-icon], ' +
+		'.thumbnail-wrapper, ' +
+		'.thumbnail'
+	)
+
+	if (!previewContainer) {
+		return
+	}
+
+	if (shouldBeSpoilered && !isRevealed) {
+		// Apply spoiler
+		applySpoilerPlaceholder(previewContainer, fileId)
+	} else if (!shouldBeSpoilered) {
+		// Remove spoiler if present
+		const placeholder = previewContainer.querySelector('.spoiler-placeholder')
+		if (placeholder) {
+			revealFile(previewContainer, fileId)
+		}
+		// Also remove from revealed set since label no longer triggers
+		spoilerState.revealedFiles.delete(fileId)
+	}
+}
+
 // Initialize
 async function init() {
 	console.log('[files_spoilers] Initializing...')
 	await loadSettings()
 	setupObserver()
+
+	// Listen for label changes from files_labels
+	subscribe('files_labels:label-changed', handleLabelChange)
+
 	console.log('[files_spoilers] Ready')
 }
 

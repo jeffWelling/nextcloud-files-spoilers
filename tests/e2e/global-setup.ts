@@ -1,0 +1,49 @@
+/**
+ * SPDX-FileCopyrightText: 2024 Jeff <jeff@example.com>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { test as setup, expect } from '@playwright/test'
+
+const NEXTCLOUD_URL = process.env.NEXTCLOUD_URL || 'http://localhost:8080'
+const TEST_USER = process.env.TEST_USER || 'testuser1'
+const TEST_PASSWORD = process.env.TEST_PASSWORD || 'testpass123'
+const TEST_USER_2 = process.env.TEST_USER_2 || 'testuser2'
+const TEST_PASSWORD_2 = process.env.TEST_PASSWORD_2 || 'testpass123'
+
+/**
+ * Login to Nextcloud and save authentication state
+ */
+async function loginAndSaveState(
+	page: import('@playwright/test').Page,
+	username: string,
+	password: string,
+	storageStatePath: string
+) {
+	// Navigate to login page
+	await page.goto(`${NEXTCLOUD_URL}/login`)
+
+	// Wait for login form to be ready
+	await page.waitForSelector('input[name="user"]', { state: 'visible', timeout: 30000 })
+
+	// Fill in credentials
+	await page.fill('input[name="user"]', username)
+	await page.fill('input[name="password"]', password)
+
+	// Click login button
+	await page.click('button[type="submit"], input[type="submit"]')
+
+	// Wait for successful login - should redirect to dashboard or files
+	await expect(page).toHaveURL(/\/(apps\/(dashboard|files)|index\.php)/, { timeout: 30000 })
+
+	// Save authentication state
+	await page.context().storageState({ path: storageStatePath })
+}
+
+setup('authenticate testuser1', async ({ page }) => {
+	await loginAndSaveState(page, TEST_USER, TEST_PASSWORD, 'tests/e2e/.auth/testuser1.json')
+})
+
+setup('authenticate testuser2', async ({ page }) => {
+	await loginAndSaveState(page, TEST_USER_2, TEST_PASSWORD_2, 'tests/e2e/.auth/testuser2.json')
+})

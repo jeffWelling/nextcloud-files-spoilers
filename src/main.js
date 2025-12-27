@@ -6,6 +6,8 @@
 import axios from '@nextcloud/axios'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import { subscribe } from '@nextcloud/event-bus'
+import { translate as t } from '@nextcloud/l10n'
+import { showError } from '@nextcloud/dialogs'
 
 // Store for spoiler state
 const spoilerState = {
@@ -24,6 +26,9 @@ const batchState = {
 	queue: new Map(), // fileId -> { resolve, reject }
 	timer: null,
 	BATCH_DELAY: 50, // ms to wait before sending batch request
+	consecutiveFailures: 0,
+	MAX_FAILURES_BEFORE_NOTIFY: 3,
+	notifiedUser: false,
 }
 
 // Load user settings
@@ -63,6 +68,9 @@ async function executeBatchFetch() {
 		const response = await axios.post(url, { fileIds })
 		const results = response.data.ocs.data || {}
 
+		// Reset failure counter on success
+		batchState.consecutiveFailures = 0
+
 		// Resolve all promises with their results
 		for (const [fileId, handlers] of pending) {
 			const labels = results[fileId] || {}
@@ -72,6 +80,10 @@ async function executeBatchFetch() {
 		}
 	} catch (error) {
 		console.error('[files_spoilers] Batch fetch failed, falling back to individual requests:', error)
+
+		// Track failures and notify user if persistent
+		let allFailed = true
+
 		// Fallback: fetch individually
 		for (const [fileId, handlers] of pending) {
 			try {
@@ -80,12 +92,28 @@ async function executeBatchFetch() {
 				const labels = response.data.ocs.data || {}
 				spoilerState.labelCache.set(fileId, labels)
 				handlers.resolve(labels)
+				allFailed = false
 			} catch (e) {
 				spoilerState.labelCache.set(fileId, {})
 				handlers.resolve({})
 			} finally {
 				spoilerState.pendingPromises.delete(fileId)
 			}
+		}
+
+		// If all fallback requests also failed, increment failure counter
+		if (allFailed) {
+			batchState.consecutiveFailures++
+			console.warn('[files_spoilers] All label fetches failed, consecutive failures:', batchState.consecutiveFailures)
+
+			// Notify user after persistent failures (but only once per session)
+			if (batchState.consecutiveFailures >= batchState.MAX_FAILURES_BEFORE_NOTIFY && !batchState.notifiedUser) {
+				batchState.notifiedUser = true
+				showError(t('files_spoilers', 'Unable to check file labels. Spoiler detection may not work correctly.'))
+			}
+		} else {
+			// Reset if at least some succeeded
+			batchState.consecutiveFailures = 0
 		}
 	}
 }
@@ -207,7 +235,7 @@ function applySpoilerPlaceholder(previewContainer, fileId) {
 		img.src = generateUrl('/core/preview?fileId={fileId}&x=128&y=128', {
 			fileId: spoilerState.settings.placeholder_file_id,
 		})
-		img.alt = 'Spoiler'
+		img.alt = t('files_spoilers', 'Spoiler')
 		img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;'
 		placeholder.appendChild(img)
 	} else {
@@ -246,10 +274,10 @@ function applySpoilerPlaceholder(previewContainer, fileId) {
 		cursor: pointer;
 		overflow: hidden;
 	`
-	placeholder.title = 'Click to reveal'
+	placeholder.title = t('files_spoilers', 'Click to reveal')
 	placeholder.setAttribute('role', 'button')
 	placeholder.setAttribute('tabindex', '0')
-	placeholder.setAttribute('aria-label', 'Hidden content - click or press Enter to reveal')
+	placeholder.setAttribute('aria-label', t('files_spoilers', 'Hidden content - click or press Enter to reveal'))
 
 	// Add click handler to reveal
 	placeholder.addEventListener('click', (e) => {

@@ -112,7 +112,7 @@
 import axios from '@nextcloud/axios'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import { loadState } from '@nextcloud/initial-state'
-import { showError, showSuccess } from '@nextcloud/dialogs'
+import { showError, showSuccess, getFilePickerBuilder, FilePickerType } from '@nextcloud/dialogs'
 import { translate as t } from '@nextcloud/l10n'
 import NcSettingsSection from '@nextcloud/vue/dist/Components/NcSettingsSection.js'
 import NcButton from '@nextcloud/vue/dist/Components/NcButton.js'
@@ -214,16 +214,31 @@ export default {
 			}
 		},
 
-		openFilePicker() {
-			// For now, prompt for file ID directly
-			// TODO: Integrate with Nextcloud file picker when build issues are resolved
-			const fileIdStr = prompt(t('files_spoilers', 'Enter the file ID of your placeholder image:'))
-			if (fileIdStr) {
-				const fileId = parseInt(fileIdStr, 10)
-				if (!isNaN(fileId) && fileId > 0) {
-					this.setPlaceholder(fileId)
-				} else {
-					showError(t('files_spoilers', 'Invalid file ID'))
+		async openFilePicker() {
+			try {
+				const picker = getFilePickerBuilder(t('files_spoilers', 'Select placeholder image'))
+					.setMimeTypeFilter(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'])
+					.setType(FilePickerType.Choose)
+					.setMultiSelect(false)
+					.allowDirectories(false)
+					.build()
+
+				const nodes = await picker.pick()
+				if (nodes && nodes.length > 0) {
+					const node = nodes[0]
+					// Get file ID from the node's attributes
+					const fileId = node.fileid || node.attributes?.fileid
+					if (fileId) {
+						this.setPlaceholder(fileId)
+					} else {
+						showError(t('files_spoilers', 'Could not get file ID'))
+					}
+				}
+			} catch (error) {
+				// User cancelled the picker
+				if (error?.message !== 'No files selected') {
+					console.error('File picker error:', error)
+					showError(t('files_spoilers', 'Failed to open file picker'))
 				}
 			}
 		},

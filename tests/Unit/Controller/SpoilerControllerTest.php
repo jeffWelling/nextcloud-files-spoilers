@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * SPDX-FileCopyrightText: 2024 Jeff <jeff@example.com>
+ * SPDX-FileCopyrightText: 2025 Jeff Welling <real.jeff.welling@gmail.com>
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
@@ -16,6 +16,7 @@ use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
 use OCP\Files\Node;
 use OCP\IRequest;
+use OCP\IServerContainer;
 use OCP\IUser;
 use OCP\IUserSession;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -27,6 +28,7 @@ class SpoilerControllerTest extends TestCase {
 	private IRootFolder&MockObject $rootFolder;
 	private IUserSession&MockObject $userSession;
 	private IRequest&MockObject $request;
+	private IServerContainer&MockObject $serverContainer;
 	private IUser&MockObject $user;
 	private Folder&MockObject $userFolder;
 
@@ -37,6 +39,7 @@ class SpoilerControllerTest extends TestCase {
 		$this->rootFolder = $this->createMock(IRootFolder::class);
 		$this->userSession = $this->createMock(IUserSession::class);
 		$this->request = $this->createMock(IRequest::class);
+		$this->serverContainer = $this->createMock(IServerContainer::class);
 		$this->user = $this->createMock(IUser::class);
 		$this->userFolder = $this->createMock(Folder::class);
 
@@ -49,7 +52,8 @@ class SpoilerControllerTest extends TestCase {
 			$this->request,
 			$this->spoilerService,
 			$this->rootFolder,
-			$this->userSession
+			$this->userSession,
+			$this->serverContainer
 		);
 	}
 
@@ -183,7 +187,8 @@ class SpoilerControllerTest extends TestCase {
 			$this->request,
 			$this->spoilerService,
 			$this->rootFolder,
-			$userSession
+			$userSession,
+			$this->serverContainer
 		);
 
 		$response = $controller->check(123);

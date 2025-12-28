@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * SPDX-FileCopyrightText: 2024 Jeff <jeff@example.com>
+ * SPDX-FileCopyrightText: 2025 Jeff Welling <real.jeff.welling@gmail.com>
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
@@ -16,6 +16,7 @@ use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
 use OCP\Files\IRootFolder;
 use OCP\IRequest;
+use OCP\IServerContainer;
 use OCP\IUserSession;
 
 /**
@@ -32,6 +33,7 @@ class SpoilerController extends OCSController {
 		private SpoilerService $spoilerService,
 		private IRootFolder $rootFolder,
 		private IUserSession $userSession,
+		private IServerContainer $serverContainer,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -154,14 +156,23 @@ class SpoilerController extends OCSController {
 	/**
 	 * Get labels for a single file from files_labels app
 	 *
+	 * Uses IServerContainer (public API) instead of \OC::$server (internal API).
+	 *
 	 * @param int $fileId
 	 * @return array<string, string>
 	 */
 	private function getFileLabels(int $fileId): array {
-		// Try to get the LabelsService from files_labels
 		try {
-			$labelsService = \OC::$server->get(\OCA\FilesLabels\Service\LabelsService::class);
-			return $labelsService->getLabels($fileId);
+			// Use public IServerContainer interface to get cross-app service
+			$labelsService = $this->serverContainer->get(\OCA\FilesLabels\Service\LabelsService::class);
+			$labels = $labelsService->getLabelsForFile($fileId);
+
+			// Convert Label entities to key-value array
+			$result = [];
+			foreach ($labels as $label) {
+				$result[$label->getLabelKey()] = $label->getLabelValue();
+			}
+			return $result;
 		} catch (\Exception $e) {
 			// files_labels not available or other error
 			// Return empty labels - file won't be spoilered
@@ -172,13 +183,26 @@ class SpoilerController extends OCSController {
 	/**
 	 * Get labels for multiple files from files_labels app
 	 *
+	 * Uses IServerContainer (public API) instead of \OC::$server (internal API).
+	 *
 	 * @param int[] $fileIds
 	 * @return array<int, array<string, string>>
 	 */
 	private function getFilesLabels(array $fileIds): array {
 		try {
-			$labelsService = \OC::$server->get(\OCA\FilesLabels\Service\LabelsService::class);
-			return $labelsService->getLabelsForFiles($fileIds);
+			// Use public IServerContainer interface to get cross-app service
+			$labelsService = $this->serverContainer->get(\OCA\FilesLabels\Service\LabelsService::class);
+			$labelsMap = $labelsService->getLabelsForFiles($fileIds);
+
+			// Convert Label entities to key-value arrays
+			$result = [];
+			foreach ($labelsMap as $fileId => $labels) {
+				$result[$fileId] = [];
+				foreach ($labels as $label) {
+					$result[$fileId][$label->getLabelKey()] = $label->getLabelValue();
+				}
+			}
+			return $result;
 		} catch (\Exception $e) {
 			// files_labels not available or other error
 			// Return empty labels for all files
